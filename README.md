@@ -1,0 +1,2 @@
+# danierolabo_discord_chart_to_discord
+MT5 plugin
