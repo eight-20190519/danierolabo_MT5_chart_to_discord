@@ -27,21 +27,6 @@ input string webhook_url = "https://discord.com/api/webhooks/xxxxxxxxxxxxxxxxxxx
 #define DEAL_REASON_VMARGIN    8
 #define DEAL_REASON_SPLIT      9
 
-string DealReasonToLabel(int reason)
-{
-   switch (reason)
-   {
-      case DEAL_REASON_SL:
-      case DEAL_REASON_SO: return "損切り";
-      case DEAL_REASON_TP: return "利確";
-      case DEAL_REASON_CLIENT:
-      case DEAL_REASON_MOBILE:
-      case DEAL_REASON_WEB: return "手動";
-      case DEAL_REASON_EXPERT: return "EA";
-      default: return "その他";
-   }
-}
-
 //+------------------------------------------------------------------+
 //| チャート左上にボタンを作成（既にあれば作らない）              |
 //+------------------------------------------------------------------+
@@ -65,41 +50,6 @@ void CreateButton()
 }
 
 //+------------------------------------------------------------------+
-//| 現在保有しているポジション情報を表示＆Discordに送信           |
-//+------------------------------------------------------------------+
-void PrintPositions()
-{
-   int total = PositionsTotal();
-   if (total == 0)
-   {
-      Print("📭 ポジションを保有していません。");
-      return;
-   }
-
-   Print("📊 保有ポジション一覧:");
-   for (int i = 0; i < total; i++)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if (!PositionSelectByTicket(ticket)) continue;
-
-      string symbol    = PositionGetString(POSITION_SYMBOL);
-      int type         = PositionGetInteger(POSITION_TYPE);
-      double lots      = PositionGetDouble(POSITION_VOLUME);
-      double price     = PositionGetDouble(POSITION_PRICE_OPEN);
-      double sl        = PositionGetDouble(POSITION_SL);
-      double tp        = PositionGetDouble(POSITION_TP);
-      double profit    = PositionGetDouble(POSITION_PROFIT);
-      string type_str  = (type == POSITION_TYPE_BUY ? "BUY" : "SELL");
-
-      string msg = StringFormat("#%I64u [%s] %s %.2f lot @ %.5f SL=%.5f TP=%.5f 利益=%.2f円",
-                  ticket, symbol, type_str, lots, price, sl, tp, profit);
-
-      Print(msg);
-      SendMessageToDiscord(webhook_url, msg); // Discordへ送信
-   }
-}
-
-//+------------------------------------------------------------------+
 //| Discordへテキスト送信                                            |
 //+------------------------------------------------------------------+
 void SendMessageToDiscord(const string url, const string message)
@@ -112,14 +62,14 @@ void SendMessageToDiscord(const string url, const string message)
   int size = StringToCharArray(json, data, 0, WHOLE_ARRAY, CP_UTF8);
   ArrayResize(data, size - 1); // Null終端削除
 
-#ifndef SILENT_MODE
+ #ifndef SILENT_MODE
   char result[];
   string result_headers;
   int status = WebRequest("POST", url, headers, timeout, data, result, result_headers);
 
   Print("テキスト送信ステータス: ", status);
   Print("レスポンス内容: ", CharArrayToString(result));
-#endif
+ #endif
 }
 
 //+------------------------------------------------------------------+
@@ -168,14 +118,14 @@ void SendImageToDiscord(const string url, const string filename)
 
   ArrayResize(data, pos);
 
-#ifndef SILENT_MODE
+ #ifndef SILENT_MODE
   uchar result[];
   string result_headers;
   int status = WebRequest("POST", url, headers, timeout, data, result, result_headers);
 
   Print("画像送信ステータス: ", status);
   Print("レスポンス内容: ", CharArrayToString(result));
-#endif // SILENT_MODE
+ #endif // SILENT_MODE
 }
 
 //+------------------------------------------------------------------+
@@ -239,7 +189,38 @@ void OnChartEvent(const int id,
    if (id == CHARTEVENT_OBJECT_CLICK && sparam == button_name)
    {
       Print("🟢 ボタンがクリックされました！");
-      PrintPositions(); // ポジション出力
+      
+      int total = PositionsTotal();
+      if (total == 0)
+      {
+         Print("📭 ポジションを保有していません。");
+         return;
+      }
+   
+      Print("📊 保有ポジション一覧:");
+      for (int i = 0; i < total; i++)
+      {
+         ulong ticket = PositionGetTicket(i);
+         if (!PositionSelectByTicket(ticket)) continue;
+   
+         string symbol    = PositionGetString(POSITION_SYMBOL);
+         int type         = PositionGetInteger(POSITION_TYPE);
+         double lots      = PositionGetDouble(POSITION_VOLUME);
+         double price     = PositionGetDouble(POSITION_PRICE_OPEN);
+         double sl        = PositionGetDouble(POSITION_SL);
+         double tp        = PositionGetDouble(POSITION_TP);
+         double profit    = PositionGetDouble(POSITION_PROFIT);
+         string type_str  = (type == POSITION_TYPE_BUY ? "Long(買)" : "Short(売)");
+   
+         //string msg = StringFormat("#%I64u [%s] %s %.2f lot @ %.5f SL=%.5f TP=%.5f 利益=%.2f円",
+         //            ticket, symbol, type_str, lots, price, sl, tp, profit);
+                     
+         string msg = StringFormat("[%s] %s %.3f SL=%.3f TP=%.3f",
+                     symbol, type_str, price, sl, tp);
+   
+         Print(msg);
+         SendMessageToDiscord(webhook_url, msg); // Discordへ送信
+      }
    }
 }
 
@@ -265,7 +246,23 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       datetime time = (datetime)HistoryDealGetInteger(deal_ticket, DEAL_TIME);
       int reason    = (int)HistoryDealGetInteger(deal_ticket, DEAL_REASON);
 
-      string reason_str = DealReasonToLabel(reason);
+      string reason_str = "";
+      switch (reason)
+      {
+         case DEAL_REASON_SL:
+         case DEAL_REASON_SO: reason_str = "逆指値";
+         case DEAL_REASON_TP: reason_str = "利確指値";
+         case DEAL_REASON_CLIENT:
+         case DEAL_REASON_MOBILE:
+         case DEAL_REASON_WEB: reason_str = "手動決済";
+         case DEAL_REASON_EXPERT: reason_str = "EA";
+         default: reason_str = "その他";
+      }
+
+      //string msg = StringFormat("💸 決済[%s]: [%s] %.2f lot @ %.5f 利益=%.2f円 時刻=%s",
+      //                          reason_str, symbol, volume, price, profit,
+      //                          TimeToString(time, TIME_DATE | TIME_MINUTES));
+      
       string msg = StringFormat("💸 決済[%s]: [%s] %.2f lot @ %.5f 利益=%.2f円 時刻=%s",
                                 reason_str, symbol, volume, price, profit,
                                 TimeToString(time, TIME_DATE | TIME_MINUTES));
