@@ -1,3 +1,4 @@
+#property script_show_inputs
 #property strict
 
 #define SILENT_MODE
@@ -8,10 +9,8 @@
 string button_name = "chart_to_discord_button";
 string button_text = "Discordへポスト";
 
-//+------------------------------------------------------------------+
-//| Discord Webhook URL（ご自身のものに変更）                      |
-//+------------------------------------------------------------------+
-input string webhook_url = "https://discord.com/api/webhooks/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+input string webhook_url = "＜ここにDiscordのWebhook URLを入力＞"; // Discordのwebhook URL(http://...)
+input bool screenshot_post_enable = true; // スクリーンショットの投稿を有効化
 
 //+------------------------------------------------------------------+
 //| 決済理由コード → 日本語ラベルへの変換                          |
@@ -30,11 +29,19 @@ input string webhook_url = "https://discord.com/api/webhooks/xxxxxxxxxxxxxxxxxxx
 //+------------------------------------------------------------------+
 //| チャート左上にボタンを作成（既にあれば作らない）              |
 //+------------------------------------------------------------------+
-void CreateButton()
+bool CreateButton()
 {
-   if (ObjectFind(0, button_name) >= 0) return;
+   if (ObjectFind(0, button_name) >= 0)
+   {
+      Print("❌ ボタン作成に失敗しました。同名のボタンがすでに存在しています。");
+      return false;
+   }
 
-   ObjectCreate(0, button_name, OBJ_BUTTON, 0, 0, 0);
+   if (!ObjectCreate(0, button_name, OBJ_BUTTON, 0, 0, 0))
+   {
+      Print("❌ ボタン作成に失敗しました。チャートの状態を確認してください。");
+      return false;
+   }
    ObjectSetInteger(0, button_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
    ObjectSetInteger(0, button_name, OBJPROP_XDISTANCE, 20);
    ObjectSetInteger(0, button_name, OBJPROP_YDISTANCE, 20);
@@ -47,6 +54,9 @@ void CreateButton()
    ObjectSetInteger(0, button_name, OBJPROP_HIDDEN, false);
    ObjectSetInteger(0, button_name, OBJPROP_SELECTABLE, true);
    ObjectSetInteger(0, button_name, OBJPROP_SELECTED, false);
+   
+   Print("🟢 ボタンが生成されました。");
+   return true;
 }
 
 //+------------------------------------------------------------------+
@@ -161,7 +171,7 @@ int FileReadImage(const string filename, uchar &buffer[])
 int OnInit()
 {
    CreateButton(); // ボタン生成
-   Print("ButtonDemo 初期化完了");
+   Print("DL_MT5_C2D 初期化完了");
    return INIT_SUCCEEDED;
 }
 
@@ -187,9 +197,7 @@ void OnChartEvent(const int id,
                   const string &sparam)
 {
    if (id == CHARTEVENT_OBJECT_CLICK && sparam == button_name)
-   {
-      Print("🟢 ボタンがクリックされました！");
-      
+   {      
       int total = PositionsTotal();
       if (total == 0)
       {
@@ -197,6 +205,8 @@ void OnChartEvent(const int id,
          return;
       }
    
+      datetime now = TimeLocal();
+
       Print("📊 保有ポジション一覧:");
       for (int i = 0; i < total; i++)
       {
@@ -215,11 +225,24 @@ void OnChartEvent(const int id,
          //string msg = StringFormat("#%I64u [%s] %s %.2f lot @ %.5f SL=%.5f TP=%.5f 利益=%.2f円",
          //            ticket, symbol, type_str, lots, price, sl, tp, profit);
                      
-         string msg = StringFormat("[%s] %s %.3f SL=%.3f TP=%.3f",
-                     symbol, type_str, price, sl, tp);
+         string msg = StringFormat("[%s] %s @%.3f SL=%.3f TP=%.3f 時刻=%s",
+                     symbol, type_str, price, sl, tp, TimeToString(now, TIME_DATE | TIME_MINUTES));
    
          Print(msg);
          SendMessageToDiscord(webhook_url, msg); // Discordへ送信
+      }
+
+      if (total > 0 && screenshot_post_enable)
+      {
+         string filename = "chart.png";
+         if (TakeScreenshot(filename))
+         {
+           SendImageToDiscord(webhook_url, filename);
+         }
+         else
+         {
+           Print("スクリーンショットに失敗しました");
+         }
       }
    }
 }
@@ -249,22 +272,22 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       string reason_str = "";
       switch (reason)
       {
-         case DEAL_REASON_SL:
-         case DEAL_REASON_SO: reason_str = "逆指値";
-         case DEAL_REASON_TP: reason_str = "利確指値";
-         case DEAL_REASON_CLIENT:
+         case DEAL_REASON_CLIENT: reason_str = "手動決済"; break;
+         case DEAL_REASON_SL: reason_str = "逆指値"; break;
+         case DEAL_REASON_SO: reason_str = "強制決済"; break;
+         case DEAL_REASON_TP: reason_str = "利確指値"; break;
+         case DEAL_REASON_EXPERT: reason_str = "EA"; break;
          case DEAL_REASON_MOBILE:
-         case DEAL_REASON_WEB: reason_str = "手動決済";
-         case DEAL_REASON_EXPERT: reason_str = "EA";
-         default: reason_str = "その他";
+         case DEAL_REASON_WEB: 
+         default: reason_str = "その他"; break;
       }
 
       //string msg = StringFormat("💸 決済[%s]: [%s] %.2f lot @ %.5f 利益=%.2f円 時刻=%s",
       //                          reason_str, symbol, volume, price, profit,
       //                          TimeToString(time, TIME_DATE | TIME_MINUTES));
       
-      string msg = StringFormat("💸 決済[%s]: [%s] %.2f lot @ %.5f 利益=%.2f円 時刻=%s",
-                                reason_str, symbol, volume, price, profit,
+      string msg = StringFormat("[%s] 決済[%s(%d)] @%.3f 時刻=%s",
+                                symbol, reason_str, reason, price, 
                                 TimeToString(time, TIME_DATE | TIME_MINUTES));
 
       Print(msg);
