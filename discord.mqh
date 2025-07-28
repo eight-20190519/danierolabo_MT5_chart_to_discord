@@ -25,6 +25,7 @@ void SendMessageToDiscord(const string url, const string message)
   Print("レスポンス内容: ", CharArrayToString(result));
  #endif
 }
+
 //+------------------------------------------------------------------+
 //| Discordへ画像送信（multipart/form-data）                        |
 //| 引数: url       - Webhook URL                                   |

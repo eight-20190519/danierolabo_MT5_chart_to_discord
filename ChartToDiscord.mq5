@@ -3,16 +3,15 @@
 
 //#define SILENT_MODE
 
+#include "discord.mqh"
+input bool screenshot_post_enable = true; // スクリーンショットの投稿を有効化
+
 //+------------------------------------------------------------------+
 //| 入力パラメータ: ボタンの名前と表示テキスト                     |
 //+------------------------------------------------------------------+
 string button_name = "chart_to_discord_button";
 string button_text = "Discordへポスト";
 
-//input string webhook_url = "＜ここにDiscordのWebhook URLを入力＞"; // Discordのwebhook URL(http://...)
-input bool screenshot_post_enable = true; // スクリーンショットの投稿を有効化
-
-#include "discord.mqh"
 
 //+------------------------------------------------------------------+
 //| 決済理由コード → 日本語ラベルへの変換                          |
@@ -59,14 +58,6 @@ bool CreateButton()
    
    Print("🟢 ボタンが生成されました。");
    return true;
-}
-
-//+------------------------------------------------------------------+
-//| チャートのスクリーンショットを保存（未使用だが汎用可）       |
-//+------------------------------------------------------------------+
-bool TakeScreenshot(const string filename)
-{
-  return ChartScreenShot(0, filename, 1024, 768, ALIGN_RIGHT);
 }
 
 //+------------------------------------------------------------------+
@@ -135,16 +126,23 @@ void OnChartEvent(const int id,
          Print(msg);
       }
 
-      if (total > 0 && screenshot_post_enable)
+      if (total > 0)
       {
-         string filename = "chart.png";
-         if (TakeScreenshot(filename))
+         if (screenshot_post_enable)
          {
-           SendImageToDiscord(webhook_url, msg, filename);
+            string filename = "chart.png";
+            if (ChartScreenShot(0, filename, 1024, 768, ALIGN_RIGHT))
+            {
+            SendImageToDiscord(webhook_url, msg, filename);
+            }
+            else
+            {
+            Print("スクリーンショットに失敗しました");
+            }
          }
          else
          {
-           Print("スクリーンショットに失敗しました");
+            SendMessageToDiscord(webhook_url, msg);
          }
       }
    }
@@ -184,9 +182,10 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
          case DEAL_REASON_WEB: reason_str = "Web"; break;
          default: reason_str = "その他"; break;
       }
+      datetime now = TimeLocal();
 
       string msg = StringFormat("%s\\n[**%s**] 決済[**%s**] @%.3f",
-                                TimeToString(time, TIME_DATE | TIME_MINUTES),
+                                TimeToString(now, TIME_DATE | TIME_MINUTES),
                                 symbol, reason_str, price);
 
       Print(msg);
