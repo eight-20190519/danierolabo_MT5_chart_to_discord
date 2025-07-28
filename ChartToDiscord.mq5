@@ -1,7 +1,7 @@
 #property script_show_inputs
 #property strict
 
-#define SILENT_MODE
+//#define SILENT_MODE
 
 //+------------------------------------------------------------------+
 //| 入力パラメータ: ボタンの名前と表示テキスト                     |
@@ -102,7 +102,7 @@ void SendImageToDiscord(const string url, const string filename)
   // フォーム構成
   string part1 = "--" + boundary + "\r\n"
                + "Content-Disposition: form-data; name=\"payload_json\"\r\n\r\n"
-               + "{\"content\":\"チャート画像\"}\r\n";
+               + "{\"content\":\"ScreenShot\"}\r\n";
 
   string part2 = "--" + boundary + "\r\n"
                + "Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"\r\n"
@@ -220,13 +220,15 @@ void OnChartEvent(const int id,
          double sl        = PositionGetDouble(POSITION_SL);
          double tp        = PositionGetDouble(POSITION_TP);
          double profit    = PositionGetDouble(POSITION_PROFIT);
-         string type_str  = (type == POSITION_TYPE_BUY ? "Long(買)" : "Short(売)");
+         string type_str  = (type == POSITION_TYPE_BUY ? "Long" : "Short");
+         string type_jp   = (type == POSITION_TYPE_BUY ? "買い" : "売り");
    
          //string msg = StringFormat("#%I64u [%s] %s %.2f lot @ %.5f SL=%.5f TP=%.5f 利益=%.2f円",
          //            ticket, symbol, type_str, lots, price, sl, tp, profit);
                      
-         string msg = StringFormat("[%s] %s @%.3f SL=%.3f TP=%.3f 時刻=%s",
-                     symbol, type_str, price, sl, tp, TimeToString(now, TIME_DATE | TIME_MINUTES));
+         string msg = StringFormat("%s\\n[**%s**] **%s**(%s) @%.3f SL=**%.3f** TP=%.3f",
+                     TimeToString(now, TIME_DATE | TIME_MINUTES),
+                     symbol, type_str, type_jp, price, sl, tp);
    
          Print(msg);
          SendMessageToDiscord(webhook_url, msg); // Discordへ送信
@@ -272,23 +274,46 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       string reason_str = "";
       switch (reason)
       {
-         case DEAL_REASON_CLIENT: reason_str = "手動決済"; break;
-         case DEAL_REASON_SL: reason_str = "逆指値"; break;
-         case DEAL_REASON_SO: reason_str = "強制決済"; break;
-         case DEAL_REASON_TP: reason_str = "利確指値"; break;
-         case DEAL_REASON_EXPERT: reason_str = "EA"; break;
+         case DEAL_REASON_CLIENT:
+            reason_str = (profit >= 0) ? "利確" : "損切り";
+            break;
+      
+         case DEAL_REASON_SL:
+            reason_str = "逆指値";
+            break;
+      
+         case DEAL_REASON_TP:
+            reason_str = "利確指値";
+            break;
+      
+         case DEAL_REASON_SO:
+            reason_str = "強制決済";
+            break;
+      
+         case DEAL_REASON_EXPERT:
+            reason_str = "EA";
+            break;
+      
          case DEAL_REASON_MOBILE:
-         case DEAL_REASON_WEB: 
-         default: reason_str = "その他"; break;
+            reason_str = "モバイル";
+            break;
+      
+         case DEAL_REASON_WEB:
+            reason_str = "Web";
+            break;
+      
+         default:
+            reason_str = "その他";
+            break;
       }
 
       //string msg = StringFormat("💸 決済[%s]: [%s] %.2f lot @ %.5f 利益=%.2f円 時刻=%s",
       //                          reason_str, symbol, volume, price, profit,
       //                          TimeToString(time, TIME_DATE | TIME_MINUTES));
       
-      string msg = StringFormat("[%s] 決済[%s(%d)] @%.3f 時刻=%s",
-                                symbol, reason_str, reason, price, 
-                                TimeToString(time, TIME_DATE | TIME_MINUTES));
+      string msg = StringFormat("%s\\n[**%s**] 決済[**%s**] @%.3f",
+                                TimeToString(time, TIME_DATE | TIME_MINUTES),
+                                symbol, reason_str, price);
 
       Print(msg);
       SendMessageToDiscord(webhook_url, msg); // Discord通知
