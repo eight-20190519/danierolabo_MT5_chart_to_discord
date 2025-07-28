@@ -9,8 +9,10 @@
 string button_name = "chart_to_discord_button";
 string button_text = "Discordへポスト";
 
-input string webhook_url = "＜ここにDiscordのWebhook URLを入力＞"; // Discordのwebhook URL(http://...)
+//input string webhook_url = "＜ここにDiscordのWebhook URLを入力＞"; // Discordのwebhook URL(http://...)
 input bool screenshot_post_enable = true; // スクリーンショットの投稿を有効化
+
+#include "discord.mqh"
 
 //+------------------------------------------------------------------+
 //| 決済理由コード → 日本語ラベルへの変換                          |
@@ -60,109 +62,11 @@ bool CreateButton()
 }
 
 //+------------------------------------------------------------------+
-//| Discordへテキスト送信                                            |
-//+------------------------------------------------------------------+
-void SendMessageToDiscord(const string url, const string message)
-{
-  string headers = "Content-Type: application/json\r\n";
-  int timeout = 5000;
-
-  string json = "{\"content\":\"" + message + "\"}";
-  char data[];
-  int size = StringToCharArray(json, data, 0, WHOLE_ARRAY, CP_UTF8);
-  ArrayResize(data, size - 1); // Null終端削除
-
- #ifndef SILENT_MODE
-  char result[];
-  string result_headers;
-  int status = WebRequest("POST", url, headers, timeout, data, result, result_headers);
-
-  Print("テキスト送信ステータス: ", status);
-  Print("レスポンス内容: ", CharArrayToString(result));
- #endif
-}
-
-//+------------------------------------------------------------------+
-//| Discordへ画像送信（multipart/form-data）                        |
-//+------------------------------------------------------------------+
-void SendImageToDiscord(const string url, const string filename)
-{
-  string boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
-  string headers = "Content-Type: multipart/form-data; boundary=" + boundary + "\r\n";
-  int timeout = 5000;
-
-  uchar file_data[];
-  int file_size = FileReadImage(filename, file_data);
-  if (file_size <= 0)
-  {
-    Print("画像読み込みに失敗");
-    return;
-  }
-
-  // フォーム構成
-  string part1 = "--" + boundary + "\r\n"
-               + "Content-Disposition: form-data; name=\"payload_json\"\r\n\r\n"
-               + "{\"content\":\"ScreenShot\"}\r\n";
-
-  string part2 = "--" + boundary + "\r\n"
-               + "Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"\r\n"
-               + "Content-Type: image/png\r\n\r\n";
-
-  string part3 = "\r\n--" + boundary + "--\r\n";
-
-  uchar data[];
-  int pos = 0;
-
-  // 各パート結合
-  int len = StringToCharArray(part1, data, pos, WHOLE_ARRAY, CP_UTF8);
-  pos += len - 1;
-  ArrayResize(data, pos + StringLen(part2) + file_size + StringLen(part3) + 256);
-
-  len = StringToCharArray(part2, data, pos, WHOLE_ARRAY, CP_UTF8);
-  pos += len - 1;
-
-  for (int i = 0; i < file_size; i++) data[pos++] = file_data[i];
-
-  len = StringToCharArray(part3, data, pos, WHOLE_ARRAY, CP_UTF8);
-  pos += len - 1;
-
-  ArrayResize(data, pos);
-
- #ifndef SILENT_MODE
-  uchar result[];
-  string result_headers;
-  int status = WebRequest("POST", url, headers, timeout, data, result, result_headers);
-
-  Print("画像送信ステータス: ", status);
-  Print("レスポンス内容: ", CharArrayToString(result));
- #endif // SILENT_MODE
-}
-
-//+------------------------------------------------------------------+
 //| チャートのスクリーンショットを保存（未使用だが汎用可）       |
 //+------------------------------------------------------------------+
 bool TakeScreenshot(const string filename)
 {
   return ChartScreenShot(0, filename, 1024, 768, ALIGN_RIGHT);
-}
-
-//+------------------------------------------------------------------+
-//| ファイルを読み込み、バイナリデータを uchar 配列に読み込む     |
-//+------------------------------------------------------------------+
-int FileReadImage(const string filename, uchar &buffer[])
-{
-  int handle = FileOpen(filename, FILE_READ | FILE_BIN);
-  if (handle == INVALID_HANDLE)
-  {
-    Print("FileOpen失敗: ", filename);
-    return -1;
-  }
-
-  int size = (int)FileSize(handle);
-  ArrayResize(buffer, size);
-  FileReadArray(handle, buffer, 0, size);
-  FileClose(handle);
-  return size;
 }
 
 //+------------------------------------------------------------------+
@@ -206,6 +110,7 @@ void OnChartEvent(const int id,
       }
    
       datetime now = TimeLocal();
+      string msg = "";
 
       Print("📊 保有ポジション一覧:");
       for (int i = 0; i < total; i++)
@@ -222,16 +127,12 @@ void OnChartEvent(const int id,
          double profit    = PositionGetDouble(POSITION_PROFIT);
          string type_str  = (type == POSITION_TYPE_BUY ? "Long" : "Short");
          string type_jp   = (type == POSITION_TYPE_BUY ? "買い" : "売り");
-   
-         //string msg = StringFormat("#%I64u [%s] %s %.2f lot @ %.5f SL=%.5f TP=%.5f 利益=%.2f円",
-         //            ticket, symbol, type_str, lots, price, sl, tp, profit);
-                     
-         string msg = StringFormat("%s\\n[**%s**] **%s**(%s) @%.3f SL=**%.3f** TP=%.3f",
+                        
+         msg = StringFormat("%s\\n[**%s**] **%s**(%s) @%.3f SL=**%.3f** TP=%.3f",
                      TimeToString(now, TIME_DATE | TIME_MINUTES),
                      symbol, type_str, type_jp, price, sl, tp);
    
          Print(msg);
-         SendMessageToDiscord(webhook_url, msg); // Discordへ送信
       }
 
       if (total > 0 && screenshot_post_enable)
@@ -239,7 +140,7 @@ void OnChartEvent(const int id,
          string filename = "chart.png";
          if (TakeScreenshot(filename))
          {
-           SendImageToDiscord(webhook_url, filename);
+           SendImageToDiscord(webhook_url, msg, filename);
          }
          else
          {
@@ -274,43 +175,16 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       string reason_str = "";
       switch (reason)
       {
-         case DEAL_REASON_CLIENT:
-            reason_str = (profit >= 0) ? "利確" : "損切り";
-            break;
-      
-         case DEAL_REASON_SL:
-            reason_str = "逆指値";
-            break;
-      
-         case DEAL_REASON_TP:
-            reason_str = "利確指値";
-            break;
-      
-         case DEAL_REASON_SO:
-            reason_str = "強制決済";
-            break;
-      
-         case DEAL_REASON_EXPERT:
-            reason_str = "EA";
-            break;
-      
-         case DEAL_REASON_MOBILE:
-            reason_str = "モバイル";
-            break;
-      
-         case DEAL_REASON_WEB:
-            reason_str = "Web";
-            break;
-      
-         default:
-            reason_str = "その他";
-            break;
+         case DEAL_REASON_CLIENT: reason_str = (profit >= 0) ? "利確" : "損切り"; break;
+         case DEAL_REASON_SL: reason_str = "逆指値"; break;
+         case DEAL_REASON_TP: reason_str = "利確指値"; break;
+         case DEAL_REASON_SO: reason_str = "強制決済"; break;
+         case DEAL_REASON_EXPERT: reason_str = "EA"; break;
+         case DEAL_REASON_MOBILE: reason_str = "モバイル"; break;
+         case DEAL_REASON_WEB: reason_str = "Web"; break;
+         default: reason_str = "その他"; break;
       }
 
-      //string msg = StringFormat("💸 決済[%s]: [%s] %.2f lot @ %.5f 利益=%.2f円 時刻=%s",
-      //                          reason_str, symbol, volume, price, profit,
-      //                          TimeToString(time, TIME_DATE | TIME_MINUTES));
-      
       string msg = StringFormat("%s\\n[**%s**] 決済[**%s**] @%.3f",
                                 TimeToString(time, TIME_DATE | TIME_MINUTES),
                                 symbol, reason_str, price);
