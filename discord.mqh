@@ -1,7 +1,22 @@
 #ifndef DISCORD_MQH
 #define DISCORD_MQH
 
-input string webhook_url = "＜ここにDiscordのWebhook URLを入力＞"; // Discordのwebhook URL(http://...)
+enum Grade
+{
+   Omni,
+   Silver_Omni,
+   Bronze_Silver_Omni
+};
+
+input Grade laboGrade = Omni; // Discord配信先
+
+//input string webhook_url = "＜ここにDiscordのWebhook URLを入力＞"; // Discordのwebhook URL(http://...)
+//input string webhook_url_omni = "＜ここにOmniGradeのWebhook URLを入力＞"; // Omniのwebhook URL(http://...)
+//input string webhook_url_silver = "＜ここにSilverGradeのWebhook URLを入力＞"; // Silverのwebhook URL(http://...)
+//input string webhook_url_bronze = "＜ここにBronzeGradeのWebhook URLを入力＞"; // Bronzeのwebhook URL(http://...)
+input string webhook_url_omni = "https://discord.com/api/webhooks/1400007670274068550/gStpVo7O0HYxjXh8OKjjiMgeTrLz1mA0jfxZ05H8T-O4fjaReJYJk-9vEHvd61EFvTzE"; // Omniのwebhook URL(http://...)
+input string webhook_url_silver = "https://discord.com/api/webhooks/1401846526111776788/M8XHp12q1iqgeTOzJ14KzQI3YrMY4KMjaNkBxXN9Z18ZLAohGEGX1iXOgOC8m2JFNbSE"; // Silverのwebhook URL(http://...)
+input string webhook_url_bronze = "https://discord.com/api/webhooks/1399143214560313435/f8CF-JGkM_woSbHP8sqzkrUKJvEH1SkUAqnzmmeysqkwV-bPp_1dq5XZl4dSBQyBtSeI"; // Bronzeのwebhook URL(http://...)
 
 //+------------------------------------------------------------------+
 //| Discordへテキスト送信                                            |
