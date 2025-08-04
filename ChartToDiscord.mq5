@@ -7,10 +7,11 @@
 
 #include "global_ulong.mqh"
 #include "discord.mqh"
-#include "Logger.mqh"
 
 input bool isScreenShotEnable = true; // スクリーンショット添付
 input int sl_config_timeout = 60; // StopLoss編集タイムアウト
+
+#include "Logger.mqh"
 
 datetime g_timeout_deadline = 0;
 bool     g_timeout_triggered = false;
