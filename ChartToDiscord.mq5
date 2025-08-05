@@ -1,7 +1,13 @@
+
+#property description "danierolabo_MT5_chart_to_discord"
+#property description "20250804R001"
+#property version     "001.000"
+//#property link        "https://..."
+#property copyright   "Copyright 2025, "
 #property script_show_inputs
 #property strict
 
-//#define SILENT_MODE
+#define SILENT_MODE
 
 #include <Trade\PositionInfo.mqh>
 
@@ -20,7 +26,7 @@ ulong g_pos_id;
 string g_symbol = "";
 int g_pos_type;
 double g_price; 
-double g_sl;   
+double g_sl;
 double g_tp;
 
 string BuildEntryMessage(const Grade grade,
@@ -38,7 +44,7 @@ string BuildEntryMessage(const Grade grade,
    string tp_str = (tp > 0.0) ? StringFormat("%.3f", tp) : "未設定";
    string time_str = TimeToString((timestamp == 0) ? TimeLocal() : timestamp, TIME_DATE | TIME_MINUTES);
 
-   double risk_jp = ConvertToJPY(MathAbs(g_price - g_sl));
+   double risk_jp = ConvertToJPY_FromSymbol(MathAbs(price - sl));
    
    double lotSize;
    if(!SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE, lotSize))
@@ -56,7 +62,7 @@ string BuildEntryMessage(const Grade grade,
 
    double lot = 10000 / (risk_jp * lotSize);
    string broker = TerminalInfoString(TERMINAL_COMPANY);
-   
+
    if (grade == Bronze_Silver_Omni)
    {
       return StringFormat("%s\\n[**%s**] **%s**(%s) SL=**%s** TP=%s\\nLot=**%.3f**/10,000yen (On %s)",
@@ -71,6 +77,8 @@ string BuildExitMessage(const Grade grade, const string symbol,
                         const int reason,
                         double price,
                         double profit,
+                        double reward,
+                        double risk,
                         datetime timestamp = 0)
 {
    string reason_str;
@@ -86,11 +94,7 @@ string BuildExitMessage(const Grade grade, const string symbol,
       default:                  reason_str = "その他"; break;
    }
 
-   double reward = price - g_price;
-   double risk = g_price - g_sl;
    string time_str = TimeToString((timestamp == 0) ? TimeLocal() : timestamp, TIME_DATE | TIME_MINUTES);
-
-   PrintFormat("reowrd %.3f, risk %.3f, g_price %.3f, g_sl %.3f", reward, risk, g_price, g_sl);
 
    if (grade == Bronze_Silver_Omni)
    {
@@ -169,24 +173,34 @@ void OnTimer()
       g_timeout_triggered = true;
       PrintFormat("🔔 タイムアウト：%d秒間ポジション修正がありませんでした。", sl_config_timeout);
 
-      string lock_key = g_symbol;
+      string symbol = _Symbol;
+      string lock_key = symbol;
 
       if (!CheckUlongFromGlobal(lock_key))
       {
-         if (!PositionSelectByTicket(g_pos_id)) return;
+         ulong pos_id = g_pos_id;
+         if (!PositionSelectByTicket(pos_id)) return;
 
-         if (!(g_sl > 0.0))
+         int pos_type = (int)PositionGetInteger(POSITION_TYPE);
+         double price_open   = PositionGetDouble(POSITION_PRICE_OPEN);
+         double sl    = PositionGetDouble(POSITION_SL);
+         double tp    = PositionGetDouble(POSITION_TP);
+         
+         if (sl == 0.0)
          {
-            PrintFormat("🔸 無視：symbol=%s, pos_id=%I64u", g_symbol, g_pos_id);
+            PrintFormat("🔸 無視：symbol=%s, pos_id=%I64u", symbol, pos_id);
             return;
          }
 
-         SaveUlongToGlobal(lock_key, g_pos_id);
-         PrintFormat("✅ エントリ記録：symbol=%s, pos_id=%I64u", g_symbol, g_pos_id);
+         g_price = price_open;
+         g_sl = sl;
+
+         SaveUlongToGlobal(lock_key, pos_id);
+         PrintFormat("✅ エントリ記録：symbol=%s, pos_id=%I64u", symbol, pos_id);
          
-         string msg_omni = BuildEntryMessage(Omni, g_symbol, g_pos_type, g_price, g_sl, g_tp);
-         string msg_silver = BuildEntryMessage(Silver_Omni, g_symbol, g_pos_type, g_price, g_sl, g_tp);
-         string msg_bronze = BuildEntryMessage(Bronze_Silver_Omni, g_symbol, g_pos_type, g_price, g_sl, g_tp);
+         string msg_omni = BuildEntryMessage(Omni, symbol, pos_type, price_open, sl, tp);
+         string msg_silver = BuildEntryMessage(Silver_Omni, symbol, pos_type, price_open, sl, tp);
+         string msg_bronze = BuildEntryMessage(Bronze_Silver_Omni, symbol, pos_type, price_open, sl, tp);
          
          if (isScreenShotEnable)
          {
@@ -215,18 +229,15 @@ void HandlePositionModified(const MqlTradeTransaction &trans)
 
    if (!CheckUlongFromGlobal(lock_key))
    {
-      g_pos_id  = pos_id;
-      g_symbol  = symbol;
-      //g_price   = PositionGetDouble(POSITION_PRICE_OPEN);
-      g_sl      = PositionGetDouble(POSITION_SL);
-      g_tp      = PositionGetDouble(POSITION_TP);
-      g_pos_type = (int)PositionGetInteger(POSITION_TYPE);
-
-      if (!(g_sl > 0.0))
+      double sl   = PositionGetDouble(POSITION_SL);
+      if (sl == 0.0)
       {
          PrintFormat("🔸 無視：symbol=%s, pos_id=%I64u", symbol, pos_id);
          return;
       }
+      
+      g_pos_id = pos_id;
+      g_sl = sl;
 
       g_timeout_deadline = TimeLocal() + sl_config_timeout;
       g_timeout_triggered = false;
@@ -254,25 +265,26 @@ void HandleDealEntryIn(const MqlTradeTransaction &trans)
    {
       if (!PositionSelectByTicket(pos_id)) return;
 
-      g_pos_id  = pos_id;
-      g_symbol  = symbol;
-      g_price   = PositionGetDouble(POSITION_PRICE_OPEN);
-      g_sl      = PositionGetDouble(POSITION_SL);
-      g_tp      = PositionGetDouble(POSITION_TP);
-      g_pos_type = (int)PositionGetInteger(POSITION_TYPE);
+      double price_open = PositionGetDouble(POSITION_PRICE_OPEN);
+      double sl  = PositionGetDouble(POSITION_SL);
+      double tp  = PositionGetDouble(POSITION_TP);
+      int pos_type = (int)PositionGetInteger(POSITION_TYPE);
 
-      if (!(g_sl > 0.0))
+      if (sl == 0.0)
       {
          PrintFormat("🔸 無視：symbol=%s, pos_id=%I64u", symbol, pos_id);
          return;
       }
 
+      g_price = price_open;
+      g_sl = sl;
+
       SaveUlongToGlobal(lock_key, pos_id);
       PrintFormat("✅ エントリ記録：symbol=%s, pos_id=%I64u", symbol, pos_id);
 
-      string msg_omni = BuildEntryMessage(Omni, g_symbol, g_pos_type, g_price, g_sl, g_tp);
-      string msg_silver = BuildEntryMessage(Silver_Omni, g_symbol, g_pos_type, g_price, g_sl, g_tp);
-      string msg_bronze = BuildEntryMessage(Bronze_Silver_Omni, g_symbol, g_pos_type, g_price, g_sl, g_tp);
+      string msg_omni = BuildEntryMessage(Omni, symbol, pos_type, price_open, sl, tp);
+      string msg_silver = BuildEntryMessage(Silver_Omni, symbol, pos_type, price_open, sl, tp);
+      string msg_bronze = BuildEntryMessage(Bronze_Silver_Omni, symbol, pos_type, price_open, sl, tp);
       
       if (isScreenShotEnable)
       {
@@ -310,9 +322,12 @@ void HandleDealEntryOut(const MqlTradeTransaction &trans)
       double price = HistoryDealGetDouble(deal_id, DEAL_PRICE);
       double profit = HistoryDealGetDouble(deal_id, DEAL_PROFIT);
 
-      string msg_omni = BuildExitMessage(Omni, symbol, reason, price, profit);
-      string msg_silver = BuildExitMessage(Silver_Omni, symbol, reason, price, profit);
-      string msg_bronze = BuildExitMessage(Bronze_Silver_Omni, symbol, reason, price, profit);
+      double reward = price - g_price;
+      double risk = g_price - g_sl;
+      
+      string msg_omni = BuildExitMessage(Omni, symbol, reason, price, profit, reward, risk);
+      string msg_silver = BuildExitMessage(Silver_Omni, symbol, reason, price, profit, reward, risk);
+      string msg_bronze = BuildExitMessage(Bronze_Silver_Omni, symbol, reason, price, profit, reward, risk);
 
       DiscordAnnounce(msg_omni, msg_silver, msg_bronze);
       Print(msg_omni);
@@ -415,25 +430,35 @@ void CleanupLockKey()
    RemoveUlongFromGlobal(lock_key);
 }
 
-// 任意の損益（通貨口座建て）をJPYに変換
-double ConvertToJPY(double amountInAccountCurrency)
+// 任意シンボルの損益（シンボルの損益通貨建て）を JPY に換算
+double ConvertToJPY_FromSymbol(double amount)
 {
-   string accountCurrency = AccountInfoString(ACCOUNT_CURRENCY);
-   if (accountCurrency == "JPY")
-      return amountInAccountCurrency;
+   // 分母通貨を取得（例：XAUUSD→"USD", EURCAD→"CAD", EURJPY→"JPY"）
+   string quote = SymbolInfoString(_Symbol, SYMBOL_CURRENCY_PROFIT);
 
-   string symbol1 = accountCurrency + "JPY";
-   string symbol2 = "JPY" + accountCurrency;
+   // すでに JPY 建てならそのまま
+   if(quote == "JPY")
+      return amount;
 
-   double rate;
-
-   if (SymbolInfoDouble(symbol1, SYMBOL_ASK, rate))
-      return amountInAccountCurrency * rate;
-   else if (SymbolInfoDouble(symbol2, SYMBOL_BID, rate))
-      return amountInAccountCurrency / rate;
-   else
+   // 変換ペアを組み立て
+   string pair1 = quote + "JPY"; // USDJPY, CADJPY など
+   if(SymbolSelect(pair1, true))
    {
-      PrintFormat("❌ 換算レート取得失敗: %s↔JPY", accountCurrency);
-      return 0.0;
+      double bid = SymbolInfoDouble(pair1, SYMBOL_BID);
+      if(bid > 0.0)
+         return amount * bid;  // XXX→JPY は掛け算
    }
+
+   // 逆ペア（JPYXXX）が必要なら同様に SYMBOL_ASK で割り算
+   string pair2 = "JPY" + quote;
+   if(SymbolSelect(pair2, true))
+   {
+      double ask = SymbolInfoDouble(pair2, SYMBOL_ASK);
+      if(ask > 0.0)
+         return amount / ask;
+   }
+
+   // 取得失敗時
+   PrintFormat("❌ 換算レート取得失敗: %s↔JPY", quote);
+   return 0.0;
 }
