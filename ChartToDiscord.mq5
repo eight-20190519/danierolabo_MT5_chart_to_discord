@@ -1,6 +1,6 @@
 
 #property description "danierolabo_MT5_chart_to_discord"
-#property description "20250805R001"
+#property description "20250806R001"
 //#property version     "001.000"
 //#property link        "https://..."
 #property copyright   "Copyright 2025, "
@@ -48,45 +48,63 @@ string BuildEntryMessage(const Grade grade,
                          double tp,
                          datetime timestamp = 0)
 {
-   string symbol_ = RemoveTrailingZ(symbol);
+   // 前処理: シンボル末尾Z除去、型文字列生成、SL/TPフォーマット、時刻フォーマット
+   string symbol_   = RemoveTrailingZ(symbol);
+   bool   isBuy     = (type == POSITION_TYPE_BUY);
+   string type_str  = isBuy ? "Long" : "Short";
+   string type_jp   = isBuy ? "買い" : "売り";
+   string sl_str    = StringFormat("%.3f", sl);
+   string tp_str    = tp > 0.0 ? StringFormat("%.3f", tp) : "未設定";
+   string time_str  = TimeToString(timestamp == 0 ? TimeLocal() : timestamp,
+                                   TIME_DATE | TIME_MINUTES);
 
-   string type_str  = (type == POSITION_TYPE_BUY ? "Long" : "Short");
-   string type_jp   = (type == POSITION_TYPE_BUY ? "買い" : "売り");
+   // 共通メッセージ部の組み立て
+   string priceFmt  = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.3f", price);
+   string baseMsg   = StringFormat("%s\\n[**%s**] **%s**(%s)%s SL=**%s** TP=%s",
+                                  time_str, symbol_, type_str, type_jp,
+                                  priceFmt, sl_str, tp_str);
 
-   string sl_str = StringFormat("%.3f", sl);
-   string tp_str = (tp > 0.0) ? StringFormat("%.3f", tp) : "未設定";
-   string time_str = TimeToString((timestamp == 0) ? TimeLocal() : timestamp, TIME_DATE | TIME_MINUTES);
-
-   double risk_jp = ConvertToJPY_FromSymbol(MathAbs(price - sl));
-   
+   // ロット計算: 契約サイズ取得 → リスク額からロット算出
    double lotSize;
-   if(!SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE, lotSize))
+   bool ok = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE, lotSize);
+   double lot = 0;
+   if (ok)
+   {
+      double risk_jp = ConvertToJPY_FromSymbol(MathAbs(price - sl));
+      lot = 10000 / (risk_jp * lotSize);
+   }
+   else
    {
       PrintFormat("❌ %s の取引単位が取得できませんでした。", _Symbol);
-      if (grade == Bronze_Silver_Omni)
-      {
-         return StringFormat("%s\\n[**%s**] **%s**(%s) SL=**%s** TP=%s",
-                           time_str, symbol_, type_str, type_jp, sl_str, tp_str);
-      }
-      
-      return StringFormat("%s\\n[**%s**] **%s**(%s) @%.3f SL=**%s** TP=%s",
-                           time_str, symbol_, type_str, type_jp, price, sl_str, tp_str);      
    }
 
-   double lot = 10000 / (risk_jp * lotSize);
+   // エラー時は共通部のみ返却
+   if (!ok)
+      return baseMsg;
+
+   // 通常時: ロットとブローカー名をサフィックスに追加
    string broker = TerminalInfoString(TERMINAL_COMPANY);
-
-   if (grade == Bronze_Silver_Omni)
-   {
-      return StringFormat("%s\\n[**%s**] **%s**(%s) SL=**%s** TP=%s\\nLot=**%.3f**/10,000yen (On %s)",
-                        time_str, symbol_, type_str, type_jp, sl_str, tp_str, lot, broker);
-   }
-   
-   return StringFormat("%s\\n[**%s**] **%s**(%s) @%.3f SL=**%s** TP=%s\\nLot=**%.3f**/10,000yen (On %s)",
-                        time_str, symbol_, type_str, type_jp, price, sl_str, tp_str, lot, broker);      
+   string suffix = StringFormat("\\nLot=**%.3f**/10,000yen (On %s)", lot, broker);
+   return baseMsg + suffix;
 }
 
-string BuildExitMessage(const Grade grade, const string symbol,
+string GetExitReasonString(int reason, double profit)
+{
+   switch (reason)
+   {
+      case DEAL_REASON_CLIENT:  return profit >= 0 ? "利確" : "損切り";
+      case DEAL_REASON_SL:      return "逆指値";
+      case DEAL_REASON_TP:      return "利確指値";
+      case DEAL_REASON_SO:      return "強制決済";
+      case DEAL_REASON_EXPERT:  return "EA";
+      case DEAL_REASON_MOBILE:  return "モバイル";
+      case DEAL_REASON_WEB:     return "Web";
+      default:                  return "その他";
+   }
+}
+
+string BuildExitMessage(const Grade grade,
+                        const string symbol,
                         const int reason,
                         double price,
                         double profit,
@@ -94,36 +112,27 @@ string BuildExitMessage(const Grade grade, const string symbol,
                         double risk,
                         datetime timestamp = 0)
 {
-   string symbol_ = RemoveTrailingZ(symbol);
+   // 前処理
+   string symbol_   = RemoveTrailingZ(symbol);
+   string time_str  = TimeToString(timestamp == 0 ? TimeLocal() : timestamp,
+                                   TIME_DATE | TIME_MINUTES);
+   string reason_str = GetExitReasonString(reason, profit);
 
-   string reason_str;
-   switch (reason)
-   {
-      case DEAL_REASON_CLIENT:  reason_str = (profit >= 0) ? "利確" : "損切り"; break;
-      case DEAL_REASON_SL:      reason_str = "逆指値"; break;
-      case DEAL_REASON_TP:      reason_str = "利確指値"; break;
-      case DEAL_REASON_SO:      reason_str = "強制決済"; break;
-      case DEAL_REASON_EXPERT:  reason_str = "EA"; break;
-      case DEAL_REASON_MOBILE:  reason_str = "モバイル"; break;
-      case DEAL_REASON_WEB:     reason_str = "Web"; break;
-      default:                  reason_str = "その他"; break;
-   }
+   // ベースメッセージ
+   string baseMsg = StringFormat("%s\\n[**%s**] 決済[**%s**]",
+                                 time_str, symbol_, reason_str);
 
-   string time_str = TimeToString((timestamp == 0) ? TimeLocal() : timestamp, TIME_DATE | TIME_MINUTES);
+   // 追加情報: 価格表示
+   string price_fmt = (grade <= Silver_Omni)
+      ? StringFormat(" @%.3f", price)
+      : "";
 
-   if (grade == Bronze_Silver_Omni)
-   {
-      return StringFormat("%s\\n[**%s**] 決済[**%s**]",
-                          time_str, symbol_, reason_str);
-   }
-   else if (grade == Silver_Omni)
-   {
-      return StringFormat("%s\\n[**%s**] 決済[**%s**] @%.3f",
-                           time_str, symbol_, reason_str, price);
-   }
+   // 追加情報: リスク・リワード比
+   string rr_fmt = (grade < Silver_Omni && risk > 0)
+      ? StringFormat(" RR=**%.3f**", reward / risk)
+      : "";
 
-   return StringFormat("%s\\n[**%s**] 決済[**%s**] @%.3f RR=**%.3f**",
-                        time_str, symbol_, reason_str, price, reward/risk);
+   return baseMsg + price_fmt + rr_fmt;
 }
 
 int OnInit()
@@ -226,6 +235,8 @@ void OnTimer()
             DiscordAnnounce(msg_omni, msg_silver, msg_bronze);
          }
          Print(msg_omni);
+         Print(msg_silver);
+         Print(msg_bronze);
       }
    }
 }
@@ -346,6 +357,8 @@ void HandleDealEntryOut(const MqlTradeTransaction &trans)
 
       DiscordAnnounce(msg_omni, msg_silver, msg_bronze);
       Print(msg_omni);
+      Print(msg_silver);
+      Print(msg_bronze);
    }
    else
    {
