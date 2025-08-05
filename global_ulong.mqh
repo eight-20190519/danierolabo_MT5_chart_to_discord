@@ -1,7 +1,10 @@
+#ifndef GLOBAL_ULONG_MQH
+#define GLOBAL_ULONG_MQH
+
 //+------------------------------------------------------------------+
 //| グローバル変数へulong（64bit符号なし整数）を保存                 |
 //+------------------------------------------------------------------+
-void SaveUlongToGlobal(const string name, const ulong value)
+void SetGlobalUlong(const string name, const ulong value)
 {
    // 下位32bit
    uint lo = (uint)( value & 0xFFFFFFFF );
@@ -15,7 +18,7 @@ void SaveUlongToGlobal(const string name, const ulong value)
 //+------------------------------------------------------------------+
 //| グローバル変数からulong（64bit符号なし整数）を読み込む          |
 //+------------------------------------------------------------------+
-ulong LoadUlongFromGlobal(const string name)
+ulong GetGlobalUlong(const string name)
 {
    string loName = name + "_LO";
    string hiName = name + "_HI";
@@ -33,7 +36,7 @@ ulong LoadUlongFromGlobal(const string name)
 //+------------------------------------------------------------------+
 //| グローバル変数から保存したulongを削除                            |
 //+------------------------------------------------------------------+
-void RemoveUlongFromGlobal(const string name)
+void DeleteGlobalUlong(const string name)
 {
    string loName = name + "_LO";
    string hiName = name + "_HI";
@@ -43,15 +46,17 @@ void RemoveUlongFromGlobal(const string name)
       GlobalVariableDel(hiName);
 }
 
-bool CheckUlongFromGlobal(const string name)
+bool CheckGlobalUlong(const string name)
 {
    string loName = name + "_LO";
    string hiName = name + "_HI";
    if(!GlobalVariableCheck(loName) || !GlobalVariableCheck(hiName))
    {
-      RemoveUlongFromGlobal(name);
+      DeleteGlobalUlong(name);
       return false;
    }
 
    return true;
 }
+
+#endif // GLOBAL_ULONG_MQH

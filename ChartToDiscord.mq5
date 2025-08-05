@@ -7,7 +7,7 @@
 #property script_show_inputs
 #property strict
 
-//#define SILENT_MODE
+#define SILENT_MODE
 
 #include <Trade\PositionInfo.mqh>
 
@@ -22,12 +22,23 @@ input int sl_config_timeout = 60; // StopLoss編集タイムアウト
 datetime g_timeout_deadline = 0;
 bool     g_timeout_triggered = false;
 
-ulong g_pos_id;
 string g_symbol = "";
+ulong g_pos_id;
 int g_pos_type;
 double g_price; 
 double g_sl;
 double g_tp;
+
+//+------------------------------------------------------------------+
+//| 文字列の末尾に 'z' があれば取り除いて返す                      |
+//+------------------------------------------------------------------+
+string RemoveTrailingZ(string str)
+{
+   int len = StringLen(str);
+   if(len > 0 && StringSubstr(str, len - 1, 1) == "z")
+      return StringSubstr(str, 0, len - 1);
+   return str;
+}
 
 string BuildEntryMessage(const Grade grade,
                          const string symbol,
@@ -37,6 +48,8 @@ string BuildEntryMessage(const Grade grade,
                          double tp,
                          datetime timestamp = 0)
 {
+   string symbol_ = RemoveTrailingZ(symbol);
+
    string type_str  = (type == POSITION_TYPE_BUY ? "Long" : "Short");
    string type_jp   = (type == POSITION_TYPE_BUY ? "買い" : "売り");
 
@@ -53,11 +66,11 @@ string BuildEntryMessage(const Grade grade,
       if (grade == Bronze_Silver_Omni)
       {
          return StringFormat("%s\\n[**%s**] **%s**(%s) SL=**%s** TP=%s",
-                           time_str, symbol, type_str, type_jp, sl_str, tp_str);
+                           time_str, symbol_, type_str, type_jp, sl_str, tp_str);
       }
       
       return StringFormat("%s\\n[**%s**] **%s**(%s) @%.3f SL=**%s** TP=%s",
-                           time_str, symbol, type_str, type_jp, price, sl_str, tp_str);      
+                           time_str, symbol_, type_str, type_jp, price, sl_str, tp_str);      
    }
 
    double lot = 10000 / (risk_jp * lotSize);
@@ -66,11 +79,11 @@ string BuildEntryMessage(const Grade grade,
    if (grade == Bronze_Silver_Omni)
    {
       return StringFormat("%s\\n[**%s**] **%s**(%s) SL=**%s** TP=%s\\nLot=**%.3f**/10,000yen (On %s)",
-                        time_str, symbol, type_str, type_jp, sl_str, tp_str, lot, broker);
+                        time_str, symbol_, type_str, type_jp, sl_str, tp_str, lot, broker);
    }
    
    return StringFormat("%s\\n[**%s**] **%s**(%s) @%.3f SL=**%s** TP=%s\\nLot=**%.3f**/10,000yen (On %s)",
-                        time_str, symbol, type_str, type_jp, price, sl_str, tp_str, lot, broker);      
+                        time_str, symbol_, type_str, type_jp, price, sl_str, tp_str, lot, broker);      
 }
 
 string BuildExitMessage(const Grade grade, const string symbol,
@@ -81,6 +94,8 @@ string BuildExitMessage(const Grade grade, const string symbol,
                         double risk,
                         datetime timestamp = 0)
 {
+   string symbol_ = RemoveTrailingZ(symbol);
+
    string reason_str;
    switch (reason)
    {
@@ -99,16 +114,16 @@ string BuildExitMessage(const Grade grade, const string symbol,
    if (grade == Bronze_Silver_Omni)
    {
       return StringFormat("%s\\n[**%s**] 決済[**%s**]",
-                          time_str, symbol, reason_str);
+                          time_str, symbol_, reason_str);
    }
    else if (grade == Silver_Omni)
    {
       return StringFormat("%s\\n[**%s**] 決済[**%s**] @%.3f",
-                           time_str, symbol, reason_str, price);
+                           time_str, symbol_, reason_str, price);
    }
 
    return StringFormat("%s\\n[**%s**] 決済[**%s**] @%.3f RR=**%.3f**",
-                        time_str, symbol, reason_str, price, reward/risk);
+                        time_str, symbol_, reason_str, price, reward/risk);
 }
 
 int OnInit()
@@ -176,7 +191,7 @@ void OnTimer()
       string symbol = _Symbol;
       string lock_key = symbol;
 
-      if (!CheckUlongFromGlobal(lock_key))
+      if (!CheckGlobalUlong(lock_key))
       {
          ulong pos_id = g_pos_id;
          if (!PositionSelectByTicket(pos_id)) return;
@@ -195,7 +210,7 @@ void OnTimer()
          g_price = price_open;
          g_sl = sl;
 
-         SaveUlongToGlobal(lock_key, pos_id);
+         SetGlobalUlong(lock_key, pos_id);
          PrintFormat("✅ エントリ記録：symbol=%s, pos_id=%I64u", symbol, pos_id);
          
          string msg_omni = BuildEntryMessage(Omni, symbol, pos_type, price_open, sl, tp);
@@ -227,7 +242,7 @@ void HandlePositionModified(const MqlTradeTransaction &trans)
    string symbol = PositionGetString(POSITION_SYMBOL);
    string lock_key = symbol;
 
-   if (!CheckUlongFromGlobal(lock_key))
+   if (!CheckGlobalUlong(lock_key))
    {
       double sl   = PositionGetDouble(POSITION_SL);
       if (sl == 0.0)
@@ -248,7 +263,7 @@ void HandlePositionModified(const MqlTradeTransaction &trans)
    }
    else
    {
-      ulong stored = LoadUlongFromGlobal(lock_key);
+      ulong stored = GetGlobalUlong(lock_key);
       PrintFormat("🔸 無視：symbol=%s, pos_id=%I64u (記録=%I64u)", symbol, pos_id, stored);
    }
 }
@@ -261,7 +276,7 @@ void HandleDealEntryIn(const MqlTradeTransaction &trans)
    string symbol   = HistoryDealGetString(deal_id, DEAL_SYMBOL);
    string lock_key = symbol;
 
-   if (!CheckUlongFromGlobal(lock_key))
+   if (!CheckGlobalUlong(lock_key))
    {
       if (!PositionSelectByTicket(pos_id)) return;
 
@@ -279,7 +294,7 @@ void HandleDealEntryIn(const MqlTradeTransaction &trans)
       g_price = price_open;
       g_sl = sl;
 
-      SaveUlongToGlobal(lock_key, pos_id);
+      SetGlobalUlong(lock_key, pos_id);
       PrintFormat("✅ エントリ記録：symbol=%s, pos_id=%I64u", symbol, pos_id);
 
       string msg_omni = BuildEntryMessage(Omni, symbol, pos_type, price_open, sl, tp);
@@ -298,7 +313,7 @@ void HandleDealEntryIn(const MqlTradeTransaction &trans)
    }
    else
    {
-      ulong stored = LoadUlongFromGlobal(lock_key);
+      ulong stored = GetGlobalUlong(lock_key);
       PrintFormat("🚫 ロック中のためエントリ抑制：symbol=%s pos_id=%I64u (記録=%I64u)", symbol, pos_id, stored);
    }
 }
@@ -311,11 +326,11 @@ void HandleDealEntryOut(const MqlTradeTransaction &trans)
    string symbol   = HistoryDealGetString(deal_id, DEAL_SYMBOL);
    string lock_key = symbol;
 
-   if (CheckUlongFromGlobal(lock_key) && LoadUlongFromGlobal(lock_key) == pos_id)
+   if (CheckGlobalUlong(lock_key) && GetGlobalUlong(lock_key) == pos_id)
    {
       if (!HistoryDealSelect(deal_id)) return;
 
-      RemoveUlongFromGlobal(lock_key);
+      DeleteGlobalUlong(lock_key);
       PrintFormat("💢 ワンキル成立：symbol=%s, pos_id=%I64u", symbol, pos_id);
       
       int reason = (int)HistoryDealGetInteger(deal_id, DEAL_REASON);
@@ -334,7 +349,7 @@ void HandleDealEntryOut(const MqlTradeTransaction &trans)
    }
    else
    {
-      ulong stored = LoadUlongFromGlobal(lock_key);
+      ulong stored = GetGlobalUlong(lock_key);
       PrintFormat("🔸 無視：symbol=%s, pos_id=%I64u (記録=%I64u)", symbol, pos_id, stored);
    }
 }
@@ -387,7 +402,7 @@ void DiscordAnnounceWithScreenShot(string msg_omni, string msg_silver, string ms
 void CleanupLockKey()
 {
    string lock_key = _Symbol;
-   if (!CheckUlongFromGlobal(lock_key))
+   if (!CheckGlobalUlong(lock_key))
    {
       int total = GlobalVariablesTotal();
       PrintFormat("=== GlobalVariablesTotal() = %d ===", total);
@@ -413,7 +428,7 @@ void CleanupLockKey()
       return;
    }
 
-   ulong pos_id = LoadUlongFromGlobal(lock_key);
+   ulong pos_id = GetGlobalUlong(lock_key);
 
    for(int i = PositionsTotal() - 1; i >= 0; --i)
    {
@@ -427,7 +442,7 @@ void CleanupLockKey()
    }
 
    PrintFormat("不要なlock_key(%s)を削除しました。", lock_key);
-   RemoveUlongFromGlobal(lock_key);
+   DeleteGlobalUlong(lock_key);
 }
 
 // 任意シンボルの損益（シンボルの損益通貨建て）を JPY に換算
