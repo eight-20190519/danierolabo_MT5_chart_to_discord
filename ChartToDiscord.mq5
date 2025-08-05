@@ -7,7 +7,7 @@
 #property script_show_inputs
 #property strict
 
-#define SILENT_MODE
+//#define SILENT_MODE
 
 #include <Trade\PositionInfo.mqh>
 
@@ -235,8 +235,6 @@ void OnTimer()
             DiscordAnnounce(msg_omni, msg_silver, msg_bronze);
          }
          Print(msg_omni);
-         Print(msg_silver);
-         Print(msg_bronze);
       }
    }
 }
@@ -357,8 +355,6 @@ void HandleDealEntryOut(const MqlTradeTransaction &trans)
 
       DiscordAnnounce(msg_omni, msg_silver, msg_bronze);
       Print(msg_omni);
-      Print(msg_silver);
-      Print(msg_bronze);
    }
    else
    {
