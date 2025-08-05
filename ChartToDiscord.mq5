@@ -1,13 +1,13 @@
 
 #property description "danierolabo_MT5_chart_to_discord"
-#property description "20250804R001"
-#property version     "001.000"
+#property description "20250805R001"
+//#property version     "001.000"
 //#property link        "https://..."
 #property copyright   "Copyright 2025, "
 #property script_show_inputs
 #property strict
 
-#define SILENT_MODE
+//#define SILENT_MODE
 
 #include <Trade\PositionInfo.mqh>
 
