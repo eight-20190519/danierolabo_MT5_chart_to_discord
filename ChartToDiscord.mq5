@@ -29,6 +29,8 @@ double g_price;
 double g_sl;
 double g_tp;
 
+string noticeMsg = "\\n※本データは資料提供を目的とし、投資勧誘や助言を意図するものではありません。";
+
 //+------------------------------------------------------------------+
 //| 文字列の末尾に 'z' があれば取り除いて返す                      |
 //+------------------------------------------------------------------+
@@ -84,8 +86,9 @@ string BuildEntryMessage(const Grade grade,
 
    // 通常時: ロットとブローカー名をサフィックスに追加
    string broker = TerminalInfoString(TERMINAL_COMPANY);
-   string suffix = StringFormat("\\nLot=**%.3f**/10,000yen (On %s)", lot, broker);
-   return baseMsg + suffix;
+   double unit = SymbolInfoDouble(symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+   string suffix = StringFormat("\\nLot=**%.3f**/10,000yen (On %s unit=%d)", lot, broker, (int)unit);
+   return baseMsg + suffix + noticeMsg;
 }
 
 string GetExitReasonString(int reason, double profit)
@@ -132,7 +135,7 @@ string BuildExitMessage(const Grade grade,
       ? StringFormat(" RR=**%.3f**", reward / risk)
       : "";
 
-   return baseMsg + price_fmt + rr_fmt;
+   return baseMsg + price_fmt + rr_fmt + noticeMsg;
 }
 
 int OnInit()
