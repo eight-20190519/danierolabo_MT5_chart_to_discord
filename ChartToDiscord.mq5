@@ -1,6 +1,6 @@
 
 #property description "danierolabo_MT5_chart_to_discord"
-#property description "20250806R001"
+#property description "20250807R001"
 //#property version     "001.000"
 //#property link        "https://..."
 #property copyright   "Copyright 2025, "
@@ -472,10 +472,22 @@ double ConvertToJPY_FromSymbol(double amount)
       if(bid > 0.0)
          return amount * bid;  // XXX→JPY は掛け算
    }
+   else if(SymbolSelect(pair1 + "z", true))
+   {
+      double bid = SymbolInfoDouble(pair1, SYMBOL_BID);
+      if(bid > 0.0)
+         return amount * bid;  // XXX→JPY は掛け算
+   }
 
    // 逆ペア（JPYXXX）が必要なら同様に SYMBOL_ASK で割り算
    string pair2 = "JPY" + quote;
    if(SymbolSelect(pair2, true))
+   {
+      double ask = SymbolInfoDouble(pair2, SYMBOL_ASK);
+      if(ask > 0.0)
+         return amount / ask;
+   }
+   else if(SymbolSelect(pair2 + "z", true))
    {
       double ask = SymbolInfoDouble(pair2, SYMBOL_ASK);
       if(ask > 0.0)
