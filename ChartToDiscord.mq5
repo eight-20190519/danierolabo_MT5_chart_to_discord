@@ -60,11 +60,51 @@ string BuildEntryMessage(const Grade grade,
    string time_str  = TimeToString(timestamp == 0 ? TimeLocal() : timestamp,
                                    TIME_DATE | TIME_MINUTES);
 
+   string price_open_str  = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.3f", price);
+
+   // 表示単位の補正
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   switch (digits)
+   {
+      case 0:
+         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%d", price);
+         sl_str = StringFormat("%d", sl);
+         tp_str = tp > 0.0 ? StringFormat("%d", tp) : "未設定";
+         break;
+      case 1:
+         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.1f", price);
+         sl_str = StringFormat("%.1f", sl);
+         tp_str = tp > 0.0 ? StringFormat("%.1f", tp) : "未設定";
+         break;
+      case 2:
+         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.2f", price);
+         sl_str = StringFormat("%.2f", sl);
+         tp_str = tp > 0.0 ? StringFormat("%.2f", tp) : "未設定";
+         break;
+      case 3:
+         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.3f", price);
+         sl_str = StringFormat("%.3f", sl);
+         tp_str = tp > 0.0 ? StringFormat("%.3f", tp) : "未設定";
+         break;
+      case 4:
+         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.4f", price);
+         sl_str = StringFormat("%.4f", sl);
+         tp_str = tp > 0.0 ? StringFormat("%.4f", tp) : "未設定";
+         break;
+      case 5:
+         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.5f", price);
+         sl_str = StringFormat("%.5f", sl);
+         tp_str = tp > 0.0 ? StringFormat("%.5f", tp) : "未設定";
+         break;
+      default:
+         // 何も補正しない
+         break;
+   }
+
    // 共通メッセージ部の組み立て
-   string priceFmt  = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.3f", price);
    string baseMsg   = StringFormat("%s\\n[**%s**] **%s**(%s)%s SL=**%s** TP=%s",
                                   time_str, symbol_, type_str, type_jp,
-                                  priceFmt, sl_str, tp_str);
+                                  price_open_str, sl_str, tp_str);
 
    // ロット計算: 契約サイズ取得 → リスク額からロット算出
    double lotSize;
@@ -87,7 +127,7 @@ string BuildEntryMessage(const Grade grade,
    // 通常時: ロットとブローカー名をサフィックスに追加
    string broker = TerminalInfoString(TERMINAL_COMPANY);
    double unit = SymbolInfoDouble(symbol, SYMBOL_TRADE_CONTRACT_SIZE);
-   string suffix = StringFormat("\\nLot=**%.3f**/10,000yen (On %s unit=%d)", lot, broker, (int)unit);
+   string suffix = StringFormat("\\nLot=**%.3f**/1万円 (%s 取引単位=%d)", lot, broker, (int)unit);
    return baseMsg + suffix + noticeMsg;
 }
 
@@ -126,16 +166,30 @@ string BuildExitMessage(const Grade grade,
                                  time_str, symbol_, reason_str);
 
    // 追加情報: 価格表示
-   string price_fmt = (grade <= Silver_Omni)
+   string price_close_str = (grade <= Silver_Omni)
       ? StringFormat(" @%.3f", price)
       : "";
 
+   // 表示単位の補正
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   switch (digits)
+   {
+      case 0: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%d", price) : ""; break;
+      case 1: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.1f", price) : ""; break;
+      case 2: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.2f", price) : ""; break;
+      case 3: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.3f", price) : ""; break;
+      case 4: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.4f", price) : ""; break;
+      case 5: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.5f", price) : ""; break;
+      case 6: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.6f", price) : ""; break;
+      default: break; // 何も補正しない
+   }
+
    // 追加情報: リスク・リワード比
-   string rr_fmt = (grade < Silver_Omni && risk > 0)
+   string rr_fmt = (grade < Silver_Omni && risk != 0.0f)
       ? StringFormat(" RR=**%.3f**", reward / risk)
       : "";
 
-   return baseMsg + price_fmt + rr_fmt + noticeMsg;
+   return baseMsg + price_close_str + rr_fmt + noticeMsg;
 }
 
 int OnInit()
