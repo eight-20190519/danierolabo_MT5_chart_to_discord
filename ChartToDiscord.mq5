@@ -21,15 +21,12 @@ input int sl_config_timeout = 60; // StopLoss編集タイムアウト
 
 datetime g_timeout_deadline = 0;
 bool     g_timeout_triggered = false;
+ulong    g_pos_id;
 
-string g_symbol = "";
-ulong g_pos_id;
-int g_pos_type;
-double g_price; 
-double g_sl;
-double g_tp;
-
-string noticeMsg = "\\n※本データは資料提供を目的とし、投資勧誘や助言を意図するものではありません。";
+string g_keyPriceOpen = "_PRICE_OPEN";
+string g_keySl = "_FIRST_SL";
+string g_keyActiveSl = "_ACTIVE_SL";
+string g_noticeMsg = "\\n※本データは資料提供を目的とし、投資勧誘や助言を意図するものではありません。";
 
 //+------------------------------------------------------------------+
 //| 文字列の末尾に 'z' があれば取り除いて返す                      |
@@ -42,6 +39,13 @@ string RemoveTrailingZ(string str)
    return str;
 }
 
+// 小物: シンボルに合わせて丸める
+string FmtBySymbol(const string symbol, const double v)
+{
+   int d = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   return (v > 0.0) ? DoubleToString(v, d) : "未設定";
+}
+
 string BuildEntryMessage(const Grade grade,
                          const string symbol,
                          const int type,
@@ -50,146 +54,98 @@ string BuildEntryMessage(const Grade grade,
                          double tp,
                          datetime timestamp = 0)
 {
-   // 前処理: シンボル末尾Z除去、型文字列生成、SL/TPフォーマット、時刻フォーマット
-   string symbol_   = RemoveTrailingZ(symbol);
-   bool   isBuy     = (type == POSITION_TYPE_BUY);
-   string type_str  = isBuy ? "Long" : "Short";
-   string type_jp   = isBuy ? "買い" : "売り";
-   string sl_str    = StringFormat("%.3f", sl);
-   string tp_str    = tp > 0.0 ? StringFormat("%.3f", tp) : "未設定";
-   string time_str  = TimeToString(timestamp == 0 ? TimeLocal() : timestamp,
-                                   TIME_DATE | TIME_MINUTES);
+   // 前処理
+   const string symbol_  = RemoveTrailingZ(symbol);
+   const bool   isBuy    = (type == POSITION_TYPE_BUY);
+   const string type_str = isBuy ? "Long" : "Short";
+   const string type_jp  = isBuy ? "買い"  : "売り";
+   const string time_str = TimeToString(timestamp == 0 ? TimeLocal() : timestamp,
+                                        TIME_DATE | TIME_MINUTES);
 
-   string price_open_str  = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.3f", price);
+   // 桁数依存の表記は一括で
+   const string sl_str  = FmtBySymbol(symbol, sl);
+   const string tp_str  = FmtBySymbol(symbol, tp);
+   const string price_open_str = (grade == Bronze_Silver_Omni) ? "" : (" @" + FmtBySymbol(symbol, price));
 
-   // 表示単位の補正
-   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
-   switch (digits)
-   {
-      case 0:
-         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%d", price);
-         sl_str = StringFormat("%d", sl);
-         tp_str = tp > 0.0 ? StringFormat("%d", tp) : "未設定";
-         break;
-      case 1:
-         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.1f", price);
-         sl_str = StringFormat("%.1f", sl);
-         tp_str = tp > 0.0 ? StringFormat("%.1f", tp) : "未設定";
-         break;
-      case 2:
-         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.2f", price);
-         sl_str = StringFormat("%.2f", sl);
-         tp_str = tp > 0.0 ? StringFormat("%.2f", tp) : "未設定";
-         break;
-      case 3:
-         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.3f", price);
-         sl_str = StringFormat("%.3f", sl);
-         tp_str = tp > 0.0 ? StringFormat("%.3f", tp) : "未設定";
-         break;
-      case 4:
-         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.4f", price);
-         sl_str = StringFormat("%.4f", sl);
-         tp_str = tp > 0.0 ? StringFormat("%.4f", tp) : "未設定";
-         break;
-      case 5:
-         price_open_str = (grade == Bronze_Silver_Omni) ? "" : StringFormat(" @%.5f", price);
-         sl_str = StringFormat("%.5f", sl);
-         tp_str = tp > 0.0 ? StringFormat("%.5f", tp) : "未設定";
-         break;
-      default:
-         // 何も補正しない
-         break;
-   }
+   // 本体
+   string baseMsg = StringFormat("%s\\n[**%s**] **%s**(%s)%s SL=**%s** TP=%s",
+                                 time_str, symbol_, type_str, type_jp,
+                                 price_open_str, sl_str, tp_str);
 
-   // 共通メッセージ部の組み立て
-   string baseMsg   = StringFormat("%s\\n[**%s**] **%s**(%s)%s SL=**%s** TP=%s",
-                                  time_str, symbol_, type_str, type_jp,
-                                  price_open_str, sl_str, tp_str);
+   // ロット計算（契約サイズは _Symbol ではなく引数の symbol を見る）
+   double contract_size = 0.0;
+   bool ok = SymbolInfoDouble(symbol, SYMBOL_TRADE_CONTRACT_SIZE, contract_size);
 
-   // ロット計算: 契約サイズ取得 → リスク額からロット算出
-   double lotSize;
-   bool ok = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE, lotSize);
-   double lot = 0;
+   double lot = 0.0;
    if (ok)
    {
-      double risk_jp = ConvertToJPY_FromSymbol(MathAbs(price - sl));
-      lot = 10000 / (risk_jp * lotSize);
+      // 価格差→JPY換算（実装依存）：1単位あたりのリスク額を想定
+      double risk_jpy_per_unit = ConvertToJPY_FromSymbol(MathAbs(price - sl));
+      if (risk_jpy_per_unit > 0.0 && contract_size > 0.0)
+         lot = 10000.0 / (risk_jpy_per_unit * contract_size);   // 1万円リスク
+      else
+         ok = false;
    }
    else
    {
-      PrintFormat("❌ %s の取引単位が取得できませんでした。", _Symbol);
+      PrintFormat("❌ %s の取引単位が取得できませんでした。", symbol);
    }
 
-   // エラー時は共通部のみ返却
-   if (!ok)
-      return baseMsg;
+   if (!ok) return baseMsg + g_noticeMsg;
 
-   // 通常時: ロットとブローカー名をサフィックスに追加
+   // 取引単位の表示（整数っぽければ整数で、そうでなければ小数2桁）
+   string unit_str = (MathAbs(contract_size - (double)(long)contract_size) < 1e-7)
+                   ? IntegerToString((int)contract_size)
+                   : DoubleToString(contract_size, 2);
+
    string broker = TerminalInfoString(TERMINAL_COMPANY);
-   double unit = SymbolInfoDouble(symbol, SYMBOL_TRADE_CONTRACT_SIZE);
-   string suffix = StringFormat("\\nLot=**%.3f**/1万円 (%s 取引単位=%d)", lot, broker, (int)unit);
-   return baseMsg + suffix + noticeMsg;
+   string suffix = StringFormat("\\nLot=**%.3f**/1万円 (%s 取引単位=%s)", lot, broker, unit_str);
+
+   return baseMsg + suffix + g_noticeMsg;
 }
 
-string GetExitReasonString(int reason, double profit)
+// 理由文字列（SL/TP/強制決済を優先。該当なければ profit で利確/損切）
+string GetExitReasonString(const int reason, const double profit)
 {
-   switch (reason)
-   {
-      case DEAL_REASON_CLIENT:  return profit >= 0 ? "利確" : "損切り";
-      case DEAL_REASON_SL:      return "逆指値";
-      case DEAL_REASON_TP:      return "利確指値";
-      case DEAL_REASON_SO:      return "強制決済";
-      case DEAL_REASON_EXPERT:  return "EA";
-      case DEAL_REASON_MOBILE:  return "モバイル";
-      case DEAL_REASON_WEB:     return "Web";
-      default:                  return "その他";
-   }
+   if (reason == DEAL_REASON_SL)     return "逆指値";
+   if (reason == DEAL_REASON_TP)     return "利確指値";
+   if (reason == DEAL_REASON_SO)     return "強制決済";
+   if (reason == DEAL_REASON_EXPERT) return "EA";
+   if (reason == DEAL_REASON_MOBILE) return "モバイル";
+   if (reason == DEAL_REASON_WEB)    return "Web";
+   if (reason == DEAL_REASON_CLIENT) return (profit >= 0.0 ? "利確" : "損切り");
+   return "その他";
 }
 
 string BuildExitMessage(const Grade grade,
                         const string symbol,
                         const int reason,
-                        double price,
-                        double profit,
-                        double reward,
-                        double risk,
+                        const double price,
+                        const double profit,
+                        const double reward,
+                        const double risk,
                         datetime timestamp = 0)
 {
    // 前処理
-   string symbol_   = RemoveTrailingZ(symbol);
-   string time_str  = TimeToString(timestamp == 0 ? TimeLocal() : timestamp,
-                                   TIME_DATE | TIME_MINUTES);
-   string reason_str = GetExitReasonString(reason, profit);
+   const string symbol_   = RemoveTrailingZ(symbol);
+   const string time_str  = TimeToString(timestamp == 0 ? TimeLocal() : timestamp,
+                                         TIME_DATE | TIME_MINUTES);
+   const string reason_str = GetExitReasonString(reason, profit);
 
-   // ベースメッセージ
+   // ベース
    string baseMsg = StringFormat("%s\\n[**%s**] 決済[**%s**]",
                                  time_str, symbol_, reason_str);
 
-   // 追加情報: 価格表示
-   string price_close_str = (grade <= Silver_Omni)
-      ? StringFormat(" @%.3f", price)
-      : "";
+   // 価格表示（桁は銘柄依存で自動整形）
+   const string price_close_str =
+       (grade <= Silver_Omni) ? (" @" + FmtBySymbol(symbol, price)) : "";
 
-   // 表示単位の補正
-   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
-   switch (digits)
-   {
-      case 0: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%d", price) : ""; break;
-      case 1: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.1f", price) : ""; break;
-      case 2: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.2f", price) : ""; break;
-      case 3: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.3f", price) : ""; break;
-      case 4: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.4f", price) : ""; break;
-      case 5: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.5f", price) : ""; break;
-      case 6: price_close_str = (grade <= Silver_Omni) ? StringFormat(" @%.6f", price) : ""; break;
-      default: break; // 何も補正しない
-   }
+   // RR 表示（0 除算ガード）
+   string rr_fmt = "";
+   if (grade < Silver_Omni && risk != 0.0)
+      rr_fmt = StringFormat(" RR=**%.3f**", reward / risk);
 
-   // 追加情報: リスク・リワード比
-   string rr_fmt = (grade < Silver_Omni && risk != 0.0f)
-      ? StringFormat(" RR=**%.3f**", reward / risk)
-      : "";
-
-   return baseMsg + price_close_str + rr_fmt + noticeMsg;
+   return baseMsg + price_close_str + rr_fmt + g_noticeMsg;
 }
 
 int OnInit()
@@ -273,9 +229,10 @@ void OnTimer()
             return;
          }
 
-         g_price = price_open;
-         g_sl = sl;
-
+         GlobalVariableSet(symbol + g_keyPriceOpen, price_open);
+         GlobalVariableSet(symbol + g_keySl, sl);
+         GlobalVariableSet(symbol + g_keyActiveSl, sl);
+         
          SetGlobalUlong(lock_key, pos_id);
          PrintFormat("✅ エントリ記録：symbol=%s, pos_id=%I64u", symbol, pos_id);
          
@@ -317,15 +274,30 @@ void HandlePositionModified(const MqlTradeTransaction &trans)
          return;
       }
       
-      g_pos_id = pos_id;
-      g_sl = sl;
-
       g_timeout_deadline = TimeLocal() + sl_config_timeout;
       g_timeout_triggered = false;
+
+      g_pos_id = pos_id;
 
       PrintFormat("⏱ 修正タイマーを%d秒にリセット（期限：%s）",
                   sl_config_timeout,
                   TimeToString(g_timeout_deadline, TIME_SECONDS));
+   }
+   else if (GetGlobalUlong(lock_key) == pos_id)
+   {
+      double active_sl   = PositionGetDouble(POSITION_SL);
+
+      double first_sl = 0.0;
+      string key_first_sl = symbol + g_keySl;
+      if (GlobalVariableCheck(key_first_sl))
+      {
+         first_sl = GlobalVariableGet(key_first_sl);
+      }
+      if (active_sl != first_sl)
+      {
+         GlobalVariableSet(symbol + g_keyActiveSl, active_sl);
+         PrintFormat("SLの更新を検出 from %.3f to %.3f", GlobalVariableGet(key_first_sl), GlobalVariableGet(symbol + g_keyActiveSl));
+      }
    }
    else
    {
@@ -357,8 +329,9 @@ void HandleDealEntryIn(const MqlTradeTransaction &trans)
          return;
       }
 
-      g_price = price_open;
-      g_sl = sl;
+      GlobalVariableSet(symbol + g_keyPriceOpen, price_open);
+      GlobalVariableSet(symbol + g_keySl, sl);
+      GlobalVariableSet(symbol + g_keyActiveSl, sl);
 
       SetGlobalUlong(lock_key, pos_id);
       PrintFormat("✅ エントリ記録：symbol=%s, pos_id=%I64u", symbol, pos_id);
@@ -399,12 +372,42 @@ void HandleDealEntryOut(const MqlTradeTransaction &trans)
       DeleteGlobalUlong(lock_key);
       PrintFormat("💢 ワンキル成立：symbol=%s, pos_id=%I64u", symbol, pos_id);
       
+      double price_open = 0.0;
+      string key_price_open = symbol + g_keyPriceOpen;
+      if (GlobalVariableCheck(key_price_open))
+      {
+         price_open = GlobalVariableGet(key_price_open);
+         GlobalVariableDel(key_price_open);
+      }
+
+      double first_sl = 0.0;
+      string key_first_sl = symbol + g_keySl;
+      if (GlobalVariableCheck(key_first_sl))
+      {
+         first_sl = GlobalVariableGet(key_first_sl);
+         GlobalVariableDel(key_first_sl);
+      }
+
+      double active_sl = 0.0;
+      string key_active_sl = symbol + g_keyActiveSl;
+      if (GlobalVariableCheck(key_active_sl))
+      {
+         active_sl = GlobalVariableGet(key_active_sl);
+         GlobalVariableDel(key_active_sl);
+      }
+
       int reason = (int)HistoryDealGetInteger(deal_id, DEAL_REASON);
+      if (reason == DEAL_REASON_SL && active_sl != first_sl)
+      {
+         PrintFormat("SLと初期SLの相違を検出 from %.3f to %.3f", first_sl, active_sl);
+         reason = DEAL_REASON_CLIENT;
+      }
+
       double price = HistoryDealGetDouble(deal_id, DEAL_PRICE);
       double profit = HistoryDealGetDouble(deal_id, DEAL_PROFIT);
 
-      double reward = price - g_price;
-      double risk = g_price - g_sl;
+      double reward = price - price_open;
+      double risk = first_sl == 0.0 ? 0.0 : price_open - first_sl;
       
       string msg_omni = BuildExitMessage(Omni, symbol, reason, price, profit, reward, risk);
       string msg_silver = BuildExitMessage(Silver_Omni, symbol, reason, price, profit, reward, risk);
