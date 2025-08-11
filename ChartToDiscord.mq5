@@ -88,7 +88,7 @@ string BuildEntryMessage(const Grade grade,
       else
       {
          ok = false;
-         PrintFormat("risk_jpy_per_unit(f), contract_size(%f)",risk_jpy_per_unit, contract_size);
+         PrintFormat("risk_jpy_per_unit(%f), contract_size(%f)",risk_jpy_per_unit, contract_size);
          PrintFormat("❌ %s のJPY換算に失敗しました。", symbol);
       }
    }
