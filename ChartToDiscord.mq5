@@ -82,12 +82,20 @@ string BuildEntryMessage(const Grade grade,
       // 価格差→JPY換算（実装依存）：1単位あたりのリスク額を想定
       double risk_jpy_per_unit = ConvertToJPY_FromSymbol(MathAbs(price - sl));
       if (risk_jpy_per_unit > 0.0 && contract_size > 0.0)
+      {
          lot = 10000.0 / (risk_jpy_per_unit * contract_size);   // 1万円リスク
+      }
       else
+      {
          ok = false;
+         PrintFormat("risk_jpy_per_unit(f), contract_size(%f)",risk_jpy_per_unit, contract_size);
+         PrintFormat("❌ %s のJPY換算に失敗しました。", symbol);
+      }
    }
    else
    {
+      int err = GetLastError();
+      PrintFormat("SymbolInfoDouble(%s,SYMBOL_TRADE_CONTRACT_SIZE) failed. err=%d", symbol, err);
       PrintFormat("❌ %s の取引単位が取得できませんでした。", symbol);
    }
 
