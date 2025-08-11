@@ -1,6 +1,6 @@
 
 #property description "danierolabo_MT5_chart_to_discord"
-#property description "20250807R001"
+#property description "20250811R001"
 //#property version     "001.000"
 //#property link        "https://..."
 #property copyright   "Copyright 2025, "
