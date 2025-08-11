@@ -542,7 +542,7 @@ double ConvertToJPY_FromSymbol(double amount)
    }
    else if(SymbolSelect(pair1 + "z", true))
    {
-      double bid = SymbolInfoDouble(pair1, SYMBOL_BID);
+      double bid = SymbolInfoDouble(pair1 + "z", SYMBOL_BID);
       if(bid > 0.0)
          return amount * bid;  // XXX→JPY は掛け算
    }
@@ -557,12 +557,13 @@ double ConvertToJPY_FromSymbol(double amount)
    }
    else if(SymbolSelect(pair2 + "z", true))
    {
-      double ask = SymbolInfoDouble(pair2, SYMBOL_ASK);
+      double ask = SymbolInfoDouble(pair2 + "z", SYMBOL_ASK);
       if(ask > 0.0)
          return amount / ask;
    }
 
    // 取得失敗時
    PrintFormat("❌ 換算レート取得失敗: %s↔JPY", quote);
+   PrintFormat("pair1(%s), pair2(%s)",pair1, pair2);
    return 0.0;
 }
